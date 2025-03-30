@@ -1,0 +1,2 @@
+class StockAnalysisService:
+    pass
