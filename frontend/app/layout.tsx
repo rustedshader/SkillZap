@@ -14,9 +14,8 @@ const fontSans = FontSans({
   variable: '--font-sans'
 })
 
-const title = 'Zenfi AI'
-const description =
-  'A finance AI that helps you manage your money, investments, and more.'
+const title = 'Skill AI'
+const description = 'A Skill AI that helps you Upskill your skills'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://zenfi.in'),

@@ -1,6 +1,6 @@
-# ZenFi AI
+# Skilling AI
 
-This is a Financial AI Chatbot made with the help of Google Gemini and Lanchain.
+This is a Skilling AI Chatbot made with the help of Google Gemini and Lanchain.
 
 # Disclaimer
 
