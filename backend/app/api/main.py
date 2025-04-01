@@ -1,3 +1,4 @@
+import base64
 import os
 import json
 import re
@@ -6,8 +7,9 @@ from datetime import datetime, timedelta
 from uuid import UUID as uuid_UUID
 import asyncio
 
+import boto3.session
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -21,7 +23,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import sqlalchemy
 import uvicorn
 from passlib.context import CryptContext
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, List, Optional
 
 # Import LLM and tools (assuming these exist in your codebase)
 from langchain_google_community import GoogleSearchAPIWrapper
@@ -35,15 +37,12 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.tools import BraveSearch
 from app.chat_provider.service.chat_service import ChatService
 from redis.asyncio import Redis
-
+import boto3
 
 # Load environment variables
 load_dotenv()
 
-
-# Initialize FastAPI app
 app = FastAPI()
-
 
 # Add CORS middleware
 app.add_middleware(
@@ -82,6 +81,21 @@ def connect_tcp_socket() -> sqlalchemy.engine.base.Engine:
         pool_recycle=1800,
     )
     return pool
+
+
+def initialize_digitalocean_bucket():
+    bucket_url = os.environ.get("DIGITAL_OCEAN_BUCKET_URL", "https://some-bucket-url")
+    access_key = os.environ.get("DIGITAL_OCEAN_ACCESS_KEY", "some-access-key")
+    access_key_id = os.environ.get("DIGITAL_OCEAN_ACCESS_KEY_ID", "some-access-key-id")
+    session = boto3.session.Session()
+    s3_client = session.client(
+        "s3",
+        region_name=os.environ.get("DIGITAL_OCEAN_REGION_NAME", "blr1"),
+        endpoint_url=bucket_url,
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=access_key,
+    )
+    return s3_client
 
 
 # Async engine setup
@@ -126,6 +140,16 @@ class ChatMessage(Base):
     message = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
     sources = Column(JSON, nullable=True)
+
+
+# New ImageUpload Model for storing image metadata
+class ImageUpload(Base):
+    __tablename__ = "image_uploads"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    file_name = Column(String, nullable=False)
+    file_url = Column(String, nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Create tables on startup
@@ -204,9 +228,11 @@ class UserLogin(BaseModel):
     password: str
 
 
+# Extend ChatInput with optional image_id parameter
 class ChatInput(BaseModel):
     session_id: str  # now a UUID in string format
     message: str
+    image_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -274,7 +300,7 @@ class ChatServiceManager:
             async with self.semaphore:
                 # Get the ChatService instance specific to this session
                 chat_service = self.get_chat_service(session_id)
-                # If your ChatService supports passing chat_history, include it here
+                # Process input with the (possibly augmented) message
                 result = chat_service.process_input(message)
                 if asyncio.iscoroutine(result):
                     response = await result
@@ -306,14 +332,6 @@ async def get_chat_history(
 ) -> List[dict]:
     """
     Retrieve chat history for a session, using Redis cache when available.
-
-    Args:
-        session_id: The session UUID as a string.
-        db: The database session.
-        force_db: If True, bypass Redis and fetch from the database.
-
-    Returns:
-        List of message dictionaries with sender, message, and timestamp.
     """
     cache_key = f"chat_history:{session_id}"
 
@@ -342,6 +360,35 @@ async def get_chat_history(
     # Cache in Redis with a TTL of 5 minutes (300 seconds)
     await redis_client.set(cache_key, json.dumps(chat_history), ex=300)
     return chat_history
+
+
+# Helper function to fetch and encode image from S3 based on image_id
+async def get_image_base64_from_db(image_id: str, db: AsyncSession) -> str:
+    # Query the image record from the database
+    stmt = select(ImageUpload).where(ImageUpload.id == uuid.UUID(image_id))
+    result = await db.execute(stmt)
+    image_record = result.scalars().first()
+    if not image_record:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Extract the S3 key from the stored file URL
+    file_url = image_record.file_url
+    bucket_url = os.environ.get("DIGITAL_OCEAN_BUCKET_URL", "https://some-bucket-url")
+    if not file_url.startswith(bucket_url):
+        raise HTTPException(status_code=500, detail="Invalid image file URL")
+    # Assume the S3 key is the part after the bucket URL and a slash
+    s3_key = file_url[len(bucket_url) + 1 :]
+
+    s3_client = initialize_digitalocean_bucket()
+    bucket_name = os.environ.get("DIGITAL_OCEAN_BUCKET_NAME", "pragati-bucket")
+
+    def fetch_image():
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+        image_data = response["Body"].read()
+        return base64.b64encode(image_data).decode("utf-8")
+
+    base64_image = await asyncio.to_thread(fetch_image)
+    return base64_image
 
 
 chat_service_manager = ChatServiceManager()
@@ -376,6 +423,51 @@ async def login(user: UserLogin, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access_token = create_access_token(data={"sub": db_user.username})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/upload/image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    bucket_name = os.environ.get("DIGITAL_OCEAN_BUCKET_NAME", "pragati-bucket")
+    s3_client = initialize_digitalocean_bucket()
+
+    # Generate a unique filename using UUID while preserving the original extension
+    original_filename = file.filename
+    file_extension = os.path.splitext(original_filename)[1]
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    s3_file_key = f"uploads/{unique_filename}"
+
+    try:
+        # Upload the file object asynchronously to S3 using a thread executor
+        await asyncio.to_thread(
+            s3_client.upload_fileobj, file.file, bucket_name, s3_file_key
+        )
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail="Failed to upload image")
+
+    # Construct the file URL (assumes bucket URL is accessible)
+    bucket_url = os.environ.get("DIGITAL_OCEAN_BUCKET_URL", "https://some-bucket-url")
+    file_url = f"{bucket_url}/{s3_file_key}"
+
+    # Create a new image record in the database
+    new_image = ImageUpload(
+        user_id=current_user.id,
+        file_name=original_filename,
+        file_url=file_url,
+    )
+    db.add(new_image)
+    await db.commit()
+    await db.refresh(new_image)
+
+    return {
+        "image_id": str(new_image.id),
+        "file_name": original_filename,
+        "file_url": file_url,
+    }
 
 
 @app.post("/sessions")
@@ -424,11 +516,18 @@ async def send_message(
             status_code=404, detail="Session not found or not authorized"
         )
 
+    # If an image_id is provided, fetch its base64 representation and append it to the message
+    augmented_message = input_data.message
+    if input_data.image_id:
+        image_base64 = await get_image_base64_from_db(input_data.image_id, db)
+        # Wrap the base64 string with markers so the ChatService can detect and parse it
+        augmented_message = f"{augmented_message}\n[IMAGE]{image_base64}[/IMAGE]"
+
     # Save user's message
     user_message = ChatMessage(
         session_id=session.id,
         sender="user",
-        message=input_data.message,
+        message=augmented_message,
         timestamp=datetime.utcnow(),
     )
     db.add(user_message)
@@ -437,9 +536,9 @@ async def send_message(
     # Retrieve chat history with Redis caching
     chat_history = await get_chat_history(input_data.session_id, db)
 
-    # Process the message
+    # Process the message with the (possibly augmented) content
     response = await chat_service_manager.process_message(
-        input_data.session_id, input_data.message, chat_history
+        input_data.session_id, augmented_message, chat_history
     )
 
     # Save bot's reply
@@ -480,11 +579,17 @@ async def stream_chat(
             status_code=404, detail="Session not found or not authorized"
         )
 
+    # If an image_id is provided, fetch its base64 representation and append it to the message
+    augmented_message = input_data.message
+    if input_data.image_id:
+        image_base64 = await get_image_base64_from_db(input_data.image_id, db)
+        augmented_message = f"{augmented_message}\n[IMAGE]{image_base64}[/IMAGE]"
+
     # Save user's message
     user_message = ChatMessage(
         session_id=session.id,
         sender="user",
-        message=input_data.message,
+        message=augmented_message,
         timestamp=datetime.utcnow(),
     )
     db.add(user_message)
@@ -500,7 +605,7 @@ async def stream_chat(
             yield 'data: {"type":"heartbeat"}\n\n'
 
             async for token in chat_service_manager.stream_message(
-                input_data.session_id, input_data.message, chat_history
+                input_data.session_id, augmented_message, chat_history
             ):
                 if token:
                     parts = re.split(r"(\s+)", token)

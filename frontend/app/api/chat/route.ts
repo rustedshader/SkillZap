@@ -1,3 +1,4 @@
+// frontend/app/api/chat/route.ts
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
@@ -5,7 +6,8 @@ export const maxDuration = 30
 
 export async function POST(req: Request) {
   try {
-    const { message, sessionId } = await req.json()
+    // Destructure session_id (instead of sessionId) along with message and optional image_id
+    const { message, session_id, image_id } = await req.json()
     const cookieStore = await cookies()
     const token = cookieStore.get('jwt_token')?.value
 
@@ -13,7 +15,7 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
-    if (!sessionId) {
+    if (!session_id) {
       return new Response('Session ID required', { status: 400 })
     }
 
@@ -26,8 +28,9 @@ export async function POST(req: Request) {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          session_id: sessionId, // Match backend's expected key
-          message: message // Send message as a string
+          session_id: session_id, // Use session_id from payload
+          message: message,
+          image_id: image_id // Pass image_id if provided
         })
       }
     )

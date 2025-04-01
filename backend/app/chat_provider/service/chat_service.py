@@ -360,34 +360,53 @@ class ChatService:
             return "tools"
         return END
 
+    def _parse_user_input(self, user_input: str):
+        """
+        Check if the input contains an image marker [IMAGE]...[/IMAGE].
+        If yes, split the text and image base64 data and construct a list-based message.
+        """
+        if "[IMAGE]" in user_input and "[/IMAGE]" in user_input:
+            start_index = user_input.find("[IMAGE]")
+            end_index = user_input.find("[/IMAGE]", start_index)
+            text_part = user_input[:start_index].strip()
+            image_data = user_input[start_index + len("[IMAGE]") : end_index].strip()
+            message_content = []
+            if text_part:
+                message_content.append({"type": "text", "text": text_part})
+            message_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_data}"},
+                }
+            )
+            return message_content
+        return user_input
+
     def process_input(self, user_input: str):
-        self.state["messages"].append(HumanMessage(content=user_input))
+        # Parse the input to check for image markers and build the HumanMessage accordingly
+        parsed_content = self._parse_user_input(user_input)
+        human_message = HumanMessage(content=parsed_content)
+        self.state["messages"].append(human_message)
         final_state = self.graph.invoke(self.state)
         self.state = final_state
         last_content = self.state["messages"][-1].content
         if isinstance(last_content, list):
-            # If the content is a list, join its elements into a single string
             last_content = "\n".join(str(item) for item in last_content)
         return last_content
 
     async def stream_input(self, user_input: str) -> AsyncGenerator[str, None]:
-        # Append user input to existing messages to preserve conversation history
-        self.state["messages"].append(HumanMessage(content=user_input))
-        # Record the initial number of messages to identify new ones
+        # Parse the input for image markers
+        parsed_content = self._parse_user_input(user_input)
+        human_message = HumanMessage(content=parsed_content)
+        self.state["messages"].append(human_message)
         initial_length = len(self.state["messages"])
-
-        # Stream state updates from the graph
         async for state_update in self.graph.astream(self.state, stream_mode="values"):
             self.state = state_update
-            # Get messages added after the user input
             new_messages = self.state["messages"][initial_length:]
-            # Process each new message
             for msg in new_messages:
                 if isinstance(msg, AIMessage):
                     content = msg.content
-                    # Join list content into a string if necessary
                     if isinstance(content, list):
                         content = "\n".join(str(item) for item in content)
                     yield content
-            # Update initial_length to avoid re-yielding old messages
             initial_length = len(self.state["messages"])

@@ -8,6 +8,7 @@ interface Message {
   content: string
   sources?: any[]
   timestamp?: number
+  imagePreview?: string | null
 }
 
 interface RenderMessageProps {
@@ -30,7 +31,12 @@ export function RenderMessage({
   isLoading = false
 }: RenderMessageProps) {
   if (message.role === 'user') {
-    return <UserMessage message={message.content} />
+    return (
+      <UserMessage
+        message={message.content}
+        imagePreview={message.imagePreview}
+      />
+    )
   }
 
   return (
