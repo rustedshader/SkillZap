@@ -1,11 +1,12 @@
 'use client'
 
-import { ArrowUp, Square } from 'lucide-react'
+import { ArrowUp, Image, Square } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import Textarea from 'react-textarea-autosize'
 import { Button } from './ui/button'
 import { motion } from 'framer-motion'
+import { Input } from './ui/input'
 
 interface Message {
   id?: string
@@ -42,6 +43,9 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const isFirstRender = useRef(true)
   const [isComposing, setIsComposing] = useState(false)
+  const onImageButtonClick = () => {
+    // Handle image button click
+  }
 
   return (
     <div className="fixed bottom-0 left-0 w-full">
@@ -60,12 +64,18 @@ export function ChatPanel({
               maxRows={6}
               placeholder="How can I help?"
               value={input}
+              disabled={isLoading}
               onChange={handleInputChange}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
-              className="w-full resize-none bg-transparent text-gray-900 placeholder:text-gray-500 focus:outline-none py-3 sm:py-5 px-3 sm:px-5 pr-12 text-sm sm:text-base"
+              className="w-full resize-none bg-transparent text-gray-900 placeholder:text-gray-500 focus:outline-none py-3 sm:py-5 px-3 sm:px-5 pr-12 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !isComposing &&
+                  !isLoading
+                ) {
                   e.preventDefault()
                   const form = e.currentTarget.form
                   if (form) {
