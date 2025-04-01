@@ -157,7 +157,7 @@ export function Chat({
       let formattedImagePreview = null
       let messageContent = userMessage.content
 
-      if (imagePreview && imagePreview.startsWith('data:image')) {
+      if (imagePreview) {
         // Extract just the base64 part from the data URL
         const base64Data = imagePreview.split(',')[1]
         formattedImagePreview = `[IMAGE]${base64Data}[/IMAGE]`
@@ -166,7 +166,7 @@ export function Chat({
       const messageWithImage = {
         ...userMessage,
         content: messageContent,
-        imagePreview: formattedImagePreview
+        imagePreview: imagePreview // Use the original imagePreview URL directly
       }
 
       const payload = {
@@ -175,7 +175,6 @@ export function Chat({
         image_id: imageId ? imageId : undefined,
         image_preview: formattedImagePreview
       }
-      console.log('Sending payload:', payload)
 
       setIsLoading(true)
       setMessages(prev => [...prev, messageWithImage])
