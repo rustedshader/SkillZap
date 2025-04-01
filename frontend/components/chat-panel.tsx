@@ -43,9 +43,6 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const isFirstRender = useRef(true)
   const [isComposing, setIsComposing] = useState(false)
-  const onImageButtonClick = () => {
-    // Handle image button click
-  }
 
   return (
     <div className="fixed bottom-0 left-0 w-full">
