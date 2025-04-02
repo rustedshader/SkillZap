@@ -23,7 +23,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import sqlalchemy
 import uvicorn
 from passlib.context import CryptContext
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, List, Optional, Dict
 
 # Import LLM and tools (assuming these exist in your codebase)
 from langchain_google_community import GoogleSearchAPIWrapper
@@ -35,6 +35,7 @@ from langchain_google_genai import (
 )
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.tools import BraveSearch
+from langchain_core.messages import SystemMessage, HumanMessage
 from app.chat_provider.service.chat_service import ChatService
 from redis.asyncio import Redis
 import boto3
@@ -130,6 +131,7 @@ class ChatSession(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+    summary = Column(String, nullable=True)
 
 
 class ChatMessage(Base):
@@ -309,6 +311,16 @@ class ChatServiceManager:
                 return ChatResponse(message=response, sources=[])
         except Exception as e:
             return ChatResponse(message=f"An error occurred: {str(e)}", sources=[])
+
+    async def chat_summary(self, session_id: str, chat_history: list) -> str:
+        try:
+            async with self.semaphore:
+                chat_service = self.get_chat_service(session_id)
+                summary = await chat_service.chat_summary(chat_history)
+                return summary
+        except Exception as e:
+            print(f"Error in ChatServiceManager: {str(e)}")
+            return "Error generating summary"
 
     async def stream_message(
         self, session_id: str, message: str, chat_history: list
@@ -490,7 +502,11 @@ async def list_sessions(
     result = await db.execute(stmt)
     sessions = result.scalars().all()
     return [
-        {"session_id": str(session.id), "created_at": session.created_at.isoformat()}
+        {
+            "session_id": str(session.id),
+            "created_at": session.created_at.isoformat(),
+            "summary": session.summary,
+        }
         for session in sessions
     ]
 
@@ -629,6 +645,54 @@ async def stream_chat(
             # Update Redis cache
             await get_chat_history(input_data.session_id, db, force_db=True)
 
+            # Generate and update summary after we have the complete response
+            try:
+                print(f"\n=== Starting Summary Generation for Session {input_data.session_id} ===")
+                updated_history = await get_chat_history(input_data.session_id, db, force_db=True)
+                print(f"Retrieved updated chat history with {len(updated_history)} messages")
+                
+                # Format the chat history properly for the LLM
+                formatted_history = []
+                for msg in updated_history:
+                    if msg["sender"] == "user":
+                        formatted_history.append({
+                            "role": "user",
+                            "content": msg["message"]
+                        })
+                    else:
+                        formatted_history.append({
+                            "role": "assistant",
+                            "content": msg["message"]
+                        })
+                
+                summary = await chat_service_manager.chat_summary(input_data.session_id, formatted_history)
+                print(f"Generated summary: {summary}")
+                
+                # Update the session summary
+                print(f"Updating session {input_data.session_id} with new summary")
+                
+                # Get a fresh reference to the session
+                stmt = select(ChatSession).where(ChatSession.id == session_uuid)
+                result = await db.execute(stmt)
+                current_session = result.scalars().first()
+                
+                if current_session:
+                    current_session.summary = summary
+                    await db.commit()
+                    await db.refresh(current_session)
+                    print(f"Successfully updated session summary")
+                else:
+                    print(f"Failed to find session {input_data.session_id} for update")
+                
+                print("=== Summary Update Complete ===\n")
+            except Exception as e:
+                print(f"\n=== Error in Summary Update ===")
+                print(f"Session ID: {input_data.session_id}")
+                print(f"Error details: {str(e)}")
+                print(f"Error type: {type(e).__name__}")
+                print("=== Summary Update Failed ===\n")
+                # Don't fail the whole request if summary update fails
+
             yield 'data: {"type":"complete","finishReason":"stop"}\n\n'
 
         except asyncio.CancelledError:
@@ -697,6 +761,136 @@ async def get_chat_history_endpoint(
 @app.on_event("shutdown")
 async def shutdown_event():
     await redis_client.close()
+
+
+# Add these new models after the existing ones
+class PerformanceMetrics(BaseModel):
+    overall_rating: float
+    learning_speed: float
+    engagement_level: float
+    strengths: list[str]
+    areas_to_improve: list[str]
+    recommendations: list[str]
+    next_steps: list[str]
+
+class ChatAnalysisResponse(BaseModel):
+    metrics: PerformanceMetrics
+
+@app.get("/chat/{session_id}/analysis")
+async def analyze_chat_performance(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        session_uuid = uuid_UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session id format")
+
+    # Verify session ownership
+    stmt = select(ChatSession).where(
+        ChatSession.id == session_uuid, ChatSession.user_id == current_user.id
+    )
+    result = await db.execute(stmt)
+    session = result.scalars().first()
+    if not session:
+        raise HTTPException(
+            status_code=404, detail="Session not found or not authorized"
+        )
+
+    # Get chat history
+    chat_history = await get_chat_history(session_id, db)
+
+    # Format chat history for analysis
+    formatted_history = []
+    for msg in chat_history:
+        if msg["sender"] == "user":
+            formatted_history.append({
+                "role": "user",
+                "content": msg["message"]
+            })
+        else:
+            formatted_history.append({
+                "role": "assistant",
+                "content": msg["message"]
+            })
+
+    try:
+        # Create a prompt for the LLM to analyze the conversation
+        analysis_prompt = f"""Please analyze this conversation and provide performance metrics in JSON format. Your response must be a valid JSON object with the following structure:
+
+{{
+    "metrics": {{
+        "overall_rating": <float between 0-100>,
+        "learning_speed": <float between 0-100>,
+        "engagement_level": <float between 0-100>,
+        "strengths": [<list of 3-5 strengths>],
+        "areas_to_improve": [<list of 3-5 areas>],
+        "recommendations": [<list of 3-5 specific recommendations>],
+        "next_steps": [<list of 3-5 concrete next steps>]
+    }}
+}}
+
+Important:
+1. Your response must be ONLY the JSON object, no additional text
+2. All values must be properly formatted (numbers for ratings, arrays for lists)
+3. The response must be valid JSON that can be parsed
+
+Conversation:
+{json.dumps(formatted_history, indent=2)}
+
+Analysis:"""
+
+        # Get the ChatService instance for this session
+        chat_service = chat_service_manager.get_chat_service(session_id)
+        
+        # Create messages for the LLM
+        messages = [
+            SystemMessage(content="You are an expert at analyzing learning conversations and providing detailed performance metrics. Your responses must be in valid JSON format only."),
+            HumanMessage(content=analysis_prompt)
+        ]
+        
+        # Get the response from the LLM
+        response = await chat_service.llm.ainvoke(messages)
+        
+        # Try to parse as JSON first
+        try:
+            # Clean the response content to ensure it's valid JSON
+            content = response.content.strip()
+            # Remove any markdown code block markers if present
+            content = content.replace('```json', '').replace('```', '').strip()
+            analysis_data = json.loads(content)
+            
+            # Validate the response structure
+            if not isinstance(analysis_data, dict) or 'metrics' not in analysis_data:
+                raise ValueError("Invalid response structure")
+                
+            metrics = analysis_data['metrics']
+            if not all(key in metrics for key in ['overall_rating', 'learning_speed', 'engagement_level', 'strengths', 'areas_to_improve', 'recommendations', 'next_steps']):
+                raise ValueError("Missing required metrics")
+                
+            return ChatAnalysisResponse(metrics=metrics)
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing JSON response: {str(e)}")
+            print(f"Raw response: {response.content}")
+            # If JSON parsing fails, return a basic response
+            return ChatAnalysisResponse(metrics=PerformanceMetrics(
+                overall_rating=50.0,
+                learning_speed=50.0,
+                engagement_level=50.0,
+                strengths=["Unable to analyze strengths"],
+                areas_to_improve=["Unable to analyze areas for improvement"],
+                recommendations=["Unable to generate recommendations"],
+                next_steps=["Unable to suggest next steps"]
+            ))
+            
+    except Exception as e:
+        print(f"Error analyzing chat performance: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error analyzing chat performance"
+        )
 
 
 if __name__ == "__main__":

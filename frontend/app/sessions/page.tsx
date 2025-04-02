@@ -8,6 +8,7 @@ import { Clock, MessageSquare, Loader2 } from 'lucide-react'
 type Session = {
   session_id: string
   created_at: string
+  summary: string | null
 }
 
 export default function SessionsPage() {
@@ -100,7 +101,9 @@ export default function SessionsPage() {
                     <MessageSquare className="size-5 text-gray-900" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="font-medium">Chat Conversation</span>
+                    <span className="font-medium">
+                      {session.summary || 'Chat Conversation'}
+                    </span>
                     <div className="flex items-center gap-1 text-sm text-gray-500">
                       <Clock className="size-4" />
                       <span>{formatDate(session.created_at)}</span>

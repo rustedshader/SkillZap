@@ -6,6 +6,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ChatMessages } from './chat-messages'
 import { ChatPanel } from './chat-panel'
+import { Button } from './ui/button'
+import { PerformanceAnalysis } from './performance-analysis'
+import { BarChart3 } from 'lucide-react'
 
 interface Message {
   id?: string
@@ -37,6 +40,7 @@ export function Chat({
   )
   const [imageId, setImageId] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [showAnalysis, setShowAnalysis] = useState(false)
   const { isLoggedIn, logout } = useAuth()
   const initializedRef = useRef(false)
 
@@ -262,12 +266,28 @@ export function Chat({
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <div className="flex-1 overflow-y-auto pb-32">
-        <ChatMessages
-          messages={messages}
-          isLoading={isLoading}
-          chatId={id}
-          onQuerySelect={() => {}}
-        />
+        {showAnalysis && sessionId ? (
+          <div className="max-w-4xl mx-auto px-4 py-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold">Performance Analysis</h2>
+              <Button
+                variant="ghost"
+                onClick={() => setShowAnalysis(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                Close Analysis
+              </Button>
+            </div>
+            <PerformanceAnalysis sessionId={sessionId} />
+          </div>
+        ) : (
+          <ChatMessages
+            messages={messages}
+            isLoading={isLoading}
+            chatId={id}
+            onQuerySelect={() => {}}
+          />
+        )}
       </div>
       <ChatPanel
         input={input}
@@ -292,6 +312,7 @@ export function Chat({
         setImageId={setImageId}
         imagePreview={imagePreview}
         setImagePreview={setImagePreview}
+        onShowAnalysis={() => setShowAnalysis(true)}
       />
     </div>
   )

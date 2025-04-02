@@ -9,9 +9,6 @@ from langchain_chroma import Chroma
 from langchain.tools import Tool
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.tools.yahoo_finance_news import (
-    YahooFinanceNewsTool,
-)
 from app.chat_provider.tools.chat_tools import ChatTools
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.utilities import SearxSearchWrapper
@@ -70,7 +67,6 @@ class ChatService:
             func=lambda q: retrieve_from_chroma(q, self.vectorstore),
             description="Search the Chroma database for specific financial information.",
         )
-        self.yahoo_finance_tool = YahooFinanceNewsTool()
 
         self.python_repl = PythonREPL()
 
@@ -138,7 +134,6 @@ class ChatService:
         self.tools = [
             self.tavily_tool,
             self.chroma_tool,
-            self.yahoo_finance_tool,
             self.wikipedia_tool,
             self.search_web,
             self.search_youtube,
@@ -177,8 +172,8 @@ class ChatService:
 
                                 ### Communication Guidelines:
                                 - Use simple, relatable language tailored to users with limited tech familiarity.
-                                - Provide step-by-step guidance to enhance user experience (e.g., "First, let’s assess your interests, then find a program near you").
-                                - Adapt to the user’s current skill level and learning pace.
+                                - Provide step-by-step guidance to enhance user experience (e.g., "First, let's assess your interests, then find a program near you").
+                                - Adapt to the user's current skill level and learning pace.
                                 - Be patient, supportive, and encouraging, especially for users skeptical of technology.
                                 - Prioritize education and skill-building over complex technical details.
                                 - Include warnings about challenges, such as the time and effort required for skill development.
@@ -186,17 +181,17 @@ class ChatService:
                                 - Be culturally sensitive, using examples and references relevant to the Indian context (e.g., local trades or success stories).
                                 - Mention local institutions, vocational centers, or government schemes (e.g., Skill India, PMKVY) to build trust and relevance.
                                 - Explain technical terms or industry jargon in plain language (e.g., "Automation means machines doing tasks humans used to do").
-                                - Suggest text-based visual aids (e.g., simple steps or lists) when visuals aren’t feasible.
+                                - Suggest text-based visual aids (e.g., simple steps or lists) when visuals aren't feasible.
                                 - Provide real-life examples or success stories (e.g., "Ravi from Uttar Pradesh became a carpenter after a 6-month course").
                                 - Ensure external resources are up-to-date, free or low-cost, and accessible on basic devices.
-                                - Emphasize that skill development is a continuous journey and encourage further learning with prompts like, “Would you like to explore digital skills next?” or “Want to know about apprenticeships in your area?”
+                                - Emphasize that skill development is a continuous journey and encourage further learning with prompts like, "Would you like to explore digital skills next?" or "Want to know about apprenticeships in your area?"
 
                                 ---
 
                                 ### Consistency in Tone and Detail:
                                 - Maintain a consistent, supportive tone across all responses.
                                 - Use relatable examples consistently to bridge theory and practice (e.g., comparing learning a skill to mastering a sport).
-                                - Standardize disclaimers about effort and limitations for clarity (e.g., "Learning a new skill takes time and practice—don’t give up!").
+                                - Standardize disclaimers about effort and limitations for clarity (e.g., "Learning a new skill takes time and practice—don't give up!").
 
                                 ---
 
@@ -320,7 +315,7 @@ class ChatService:
                             ## Notes on the Schema
                             - **Input Formats**: Most tools expect a dictionary with key-value pairs`python_repl`, which take a single string.
 
-                            ”"""
+                            """
                 )
             ]
         }
@@ -402,6 +397,44 @@ class ChatService:
         if isinstance(last_content, list):
             last_content = "\n".join(str(item) for item in last_content)
         return last_content
+
+    async def chat_summary(self, chat_history: list):
+        """Generate a summary of the chat history."""
+        if not chat_history:
+            return "No chat history available"
+
+        # Create a formatted conversation string
+        conversation = []
+        for msg in chat_history:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            conversation.append(f"{role}: {msg['content']}")
+
+        # Join the conversation with newlines
+        conversation_text = "\n".join(conversation)
+
+        # Create a prompt for the LLM to generate a summary
+        summary_prompt = f"""Please provide a concise 5-word summary of this conversation that captures its main topic or purpose:
+
+{conversation_text}
+
+Summary (5 words):"""
+
+        # Generate summary using the LLM
+        try:
+            # Create a new state for summary generation
+            summary_state = {
+                "messages": [
+                    SystemMessage(content="You are a helpful assistant that creates concise summaries."),
+                    HumanMessage(content=summary_prompt)
+                ]
+            }
+            
+            # Get the response from the LLM
+            response = self.llm.invoke(summary_state["messages"])
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error generating summary: {str(e)}")
+            return "Error generating summary"
 
     async def stream_input(self, user_input: str) -> AsyncGenerator[str, None]:
         # Parse the input for image markers

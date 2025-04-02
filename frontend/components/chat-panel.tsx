@@ -1,5 +1,5 @@
 // Inside ChatPanel component in /frontend/components/chat-panel.tsx
-import { ArrowUp, Image, Square, Loader2 } from 'lucide-react'
+import { ArrowUp, Image, Square, Loader2, BarChart3 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from './ui/button'
 import Textarea from 'react-textarea-autosize'
@@ -17,6 +17,7 @@ interface ChatPanelProps {
   setImageId: (id: string | null) => void
   imagePreview: string | null
   setImagePreview: (url: string | null) => void
+  onShowAnalysis: () => void
 }
 
 export function ChatPanel({
@@ -30,7 +31,8 @@ export function ChatPanel({
   append,
   setImageId,
   imagePreview,
-  setImagePreview
+  setImagePreview,
+  onShowAnalysis
 }: ChatPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -57,7 +59,6 @@ export function ChatPanel({
         const response = await fetch('/api/upload/image', {
           method: 'POST',
           body: formData
-          // If needed, add an Authorization header here by reading your auth token
         })
 
         if (!response.ok) {
@@ -94,7 +95,7 @@ export function ChatPanel({
               onChange={handleInputChange}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
-              className="w-full resize-none bg-transparent text-gray-900 placeholder:text-gray-500 focus:outline-none py-3 sm:py-5 px-3 sm:px-5 pr-12 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full resize-none bg-transparent text-gray-900 placeholder:text-gray-500 focus:outline-none py-3 sm:py-5 px-3 sm:px-5 pr-36 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
               onKeyDown={e => {
                 if (
                   e.key === 'Enter' &&
@@ -111,31 +112,41 @@ export function ChatPanel({
                 }
               }}
             />
-            {/* Image attachment button */}
-            <button
-              type="button"
-              onClick={handleImageButtonClick}
-              disabled={isLoading || isUploading}
-              className="absolute right-1 sm:right-2 top-1 sm:top-2 bg-transparent hover:bg-gray-100 text-gray-600 hover:text-gray-900 rounded-lg p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isUploading ? (
-                <Loader2 className="size-4 sm:size-5 animate-spin" />
-              ) : (
-                <Image className="size-4 sm:size-5" />
-              )}
-            </button>
-            {/* Hidden file input */}
-            <input
-              type="file"
-              accept="image/*"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
-            <div className="absolute right-12 sm:right-14 bottom-1 sm:bottom-2">
+            <div className="absolute right-1 sm:right-2 bottom-1 sm:bottom-2 flex items-center gap-2">
+              {/* Performance Analysis button */}
+              <Button
+                type="button"
+                onClick={onShowAnalysis}
+                disabled={isLoading || isUploading}
+                variant="ghost"
+                size="icon"
+                className="bg-transparent hover:bg-gray-100 text-gray-600 hover:text-gray-900 rounded-lg p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <BarChart3 className="size-4 sm:size-5" />
+              </Button>
+
+              {/* Image attachment button */}
+              <Button
+                type="button"
+                onClick={handleImageButtonClick}
+                disabled={isLoading || isUploading}
+                variant="ghost"
+                size="icon"
+                className="bg-transparent hover:bg-gray-100 text-gray-600 hover:text-gray-900 rounded-lg p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? (
+                  <Loader2 className="size-4 sm:size-5 animate-spin" />
+                ) : (
+                  <Image className="size-4 sm:size-5" />
+                )}
+              </Button>
+
+              {/* Send button */}
               <Button
                 type="submit"
                 disabled={isLoading || isUploading || input.trim().length === 0}
+                variant="ghost"
+                size="icon"
                 className="bg-transparent hover:bg-gray-100 text-gray-600 hover:text-gray-900 rounded-lg p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
@@ -145,6 +156,14 @@ export function ChatPanel({
                 )}
               </Button>
             </div>
+            {/* Hidden file input */}
+            <input
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
           </div>
           {/* Display image preview if available */}
           {imagePreview && (
