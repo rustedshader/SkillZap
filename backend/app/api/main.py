@@ -647,35 +647,41 @@ async def stream_chat(
 
             # Generate and update summary after we have the complete response
             try:
-                print(f"\n=== Starting Summary Generation for Session {input_data.session_id} ===")
-                updated_history = await get_chat_history(input_data.session_id, db, force_db=True)
-                print(f"Retrieved updated chat history with {len(updated_history)} messages")
-                
+                print(
+                    f"\n=== Starting Summary Generation for Session {input_data.session_id} ==="
+                )
+                updated_history = await get_chat_history(
+                    input_data.session_id, db, force_db=True
+                )
+                print(
+                    f"Retrieved updated chat history with {len(updated_history)} messages"
+                )
+
                 # Format the chat history properly for the LLM
                 formatted_history = []
                 for msg in updated_history:
                     if msg["sender"] == "user":
-                        formatted_history.append({
-                            "role": "user",
-                            "content": msg["message"]
-                        })
+                        formatted_history.append(
+                            {"role": "user", "content": msg["message"]}
+                        )
                     else:
-                        formatted_history.append({
-                            "role": "assistant",
-                            "content": msg["message"]
-                        })
-                
-                summary = await chat_service_manager.chat_summary(input_data.session_id, formatted_history)
+                        formatted_history.append(
+                            {"role": "assistant", "content": msg["message"]}
+                        )
+
+                summary = await chat_service_manager.chat_summary(
+                    input_data.session_id, formatted_history
+                )
                 print(f"Generated summary: {summary}")
-                
+
                 # Update the session summary
                 print(f"Updating session {input_data.session_id} with new summary")
-                
+
                 # Get a fresh reference to the session
                 stmt = select(ChatSession).where(ChatSession.id == session_uuid)
                 result = await db.execute(stmt)
                 current_session = result.scalars().first()
-                
+
                 if current_session:
                     current_session.summary = summary
                     await db.commit()
@@ -683,7 +689,7 @@ async def stream_chat(
                     print(f"Successfully updated session summary")
                 else:
                     print(f"Failed to find session {input_data.session_id} for update")
-                
+
                 print("=== Summary Update Complete ===\n")
             except Exception as e:
                 print(f"\n=== Error in Summary Update ===")
@@ -773,8 +779,10 @@ class PerformanceMetrics(BaseModel):
     recommendations: list[str]
     next_steps: list[str]
 
+
 class ChatAnalysisResponse(BaseModel):
     metrics: PerformanceMetrics
+
 
 @app.get("/chat/{session_id}/analysis")
 async def analyze_chat_performance(
@@ -805,15 +813,9 @@ async def analyze_chat_performance(
     formatted_history = []
     for msg in chat_history:
         if msg["sender"] == "user":
-            formatted_history.append({
-                "role": "user",
-                "content": msg["message"]
-            })
+            formatted_history.append({"role": "user", "content": msg["message"]})
         else:
-            formatted_history.append({
-                "role": "assistant",
-                "content": msg["message"]
-            })
+            formatted_history.append({"role": "assistant", "content": msg["message"]})
 
     try:
         # Create a prompt for the LLM to analyze the conversation
@@ -843,54 +845,66 @@ Analysis:"""
 
         # Get the ChatService instance for this session
         chat_service = chat_service_manager.get_chat_service(session_id)
-        
+
         # Create messages for the LLM
         messages = [
-            SystemMessage(content="You are an expert at analyzing learning conversations and providing detailed performance metrics. Your responses must be in valid JSON format only."),
-            HumanMessage(content=analysis_prompt)
+            SystemMessage(
+                content="You are an expert at analyzing learning conversations and providing detailed performance metrics. Your responses must be in valid JSON format only."
+            ),
+            HumanMessage(content=analysis_prompt),
         ]
-        
+
         # Get the response from the LLM
         response = await chat_service.llm.ainvoke(messages)
-        
+
         # Try to parse as JSON first
         try:
             # Clean the response content to ensure it's valid JSON
             content = response.content.strip()
             # Remove any markdown code block markers if present
-            content = content.replace('```json', '').replace('```', '').strip()
+            content = content.replace("```json", "").replace("```", "").strip()
             analysis_data = json.loads(content)
-            
+
             # Validate the response structure
-            if not isinstance(analysis_data, dict) or 'metrics' not in analysis_data:
+            if not isinstance(analysis_data, dict) or "metrics" not in analysis_data:
                 raise ValueError("Invalid response structure")
-                
-            metrics = analysis_data['metrics']
-            if not all(key in metrics for key in ['overall_rating', 'learning_speed', 'engagement_level', 'strengths', 'areas_to_improve', 'recommendations', 'next_steps']):
+
+            metrics = analysis_data["metrics"]
+            if not all(
+                key in metrics
+                for key in [
+                    "overall_rating",
+                    "learning_speed",
+                    "engagement_level",
+                    "strengths",
+                    "areas_to_improve",
+                    "recommendations",
+                    "next_steps",
+                ]
+            ):
                 raise ValueError("Missing required metrics")
-                
+
             return ChatAnalysisResponse(metrics=metrics)
-            
+
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Error parsing JSON response: {str(e)}")
             print(f"Raw response: {response.content}")
             # If JSON parsing fails, return a basic response
-            return ChatAnalysisResponse(metrics=PerformanceMetrics(
-                overall_rating=50.0,
-                learning_speed=50.0,
-                engagement_level=50.0,
-                strengths=["Unable to analyze strengths"],
-                areas_to_improve=["Unable to analyze areas for improvement"],
-                recommendations=["Unable to generate recommendations"],
-                next_steps=["Unable to suggest next steps"]
-            ))
-            
+            return ChatAnalysisResponse(
+                metrics=PerformanceMetrics(
+                    overall_rating=50.0,
+                    learning_speed=50.0,
+                    engagement_level=50.0,
+                    strengths=["Unable to analyze strengths"],
+                    areas_to_improve=["Unable to analyze areas for improvement"],
+                    recommendations=["Unable to generate recommendations"],
+                    next_steps=["Unable to suggest next steps"],
+                )
+            )
+
     except Exception as e:
         print(f"Error analyzing chat performance: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Error analyzing chat performance"
-        )
+        raise HTTPException(status_code=500, detail="Error analyzing chat performance")
 
 
 if __name__ == "__main__":

@@ -1,13 +1,12 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
-export async function GET(
-  request: Request,
-  { params }: { params: { sessionId: string } }
-) {
+type Analysis = Promise<{ sessionId: string }>
+
+export async function GET(request: Request, { params }: { params: Analysis }) {
   const cookieStore = await cookies()
   const token = cookieStore.get('jwt_token')?.value
-  const sessionId = await params.sessionId
+  const sessionId = (await params).sessionId
 
   if (!token) {
     return new Response('Unauthorized', { status: 401 })
