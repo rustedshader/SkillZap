@@ -1,7 +1,4 @@
-# Skilling AI
+# SkillZap AI
 
-This is a Skilling AI Chatbot made with the help of Google Gemini and Lanchain.
+This is a SkillZap AI Chatbot made with the help of Google Gemini and Langchain.
 
-# Disclaimer
-
-This is not the best representation of my code because it was made withing a short constraint time frame for a hackathon and includes AI generated Code which I don't prefer. Still it is pretty good and backend is mostly written by me.
