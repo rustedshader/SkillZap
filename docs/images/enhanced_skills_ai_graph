@@ -1,0 +1,42 @@
+// Skills AI Backend System
+digraph {
+	graph [bgcolor="#f0f0f0" fontcolor="#333333" fontsize=16 label="Skills AI Backend System
+Built with Langchain, LangGraph, and FastAPI" labelloc=t rankdir=TB splines=spline]
+	node [fontname=Helvetica shape=box style="filled,rounded"]
+	edge [fontname=Helvetica fontsize=10]
+	subgraph cluster_api {
+		color="#d9e6f2" label="API Layer (FastAPI)" style=filled
+		api_server [label="API Server
+(FastAPI, OAuth2, JWT)" fillcolor="#a3c2e0" shape=rect]
+		redis [label="Redis
+(Caching)" fillcolor="#ff9999" shape=cylinder]
+		db [label="Database
+(PostgreSQL)" fillcolor="#99ff99" shape=cylinder]
+	}
+	subgraph cluster_langchain {
+		color="#e6f2d9" label="Langchain Components" style=filled
+		SystemPrompt [label="System Prompt" color="#cccc00" fillcolor="#ffff99" shape=parallelogram]
+		chatbot [label="Chatbot
+LLM: Gemini-2.0-pro-exp-03-25
+(with Chat Analysis)" color="#1a53ff" fillcolor="#4d79ff" fontcolor=white shape=rect]
+		tools [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD COLSPAN="2"><B>Tools</B></TD></TR><TR><TD bgcolor="#e0e0e0"><B>Information Retrieval Tools</B></TD><TD>TavilySearchResults<br/>google_search<br/>Search_The_Internet (Google, Brave Search, DuckDuckGo, Tavily, Searxng)<br/>Wikipedia_Search<br/>Search_Youtube<br/>Get_Youtube_Captions<br/>Scrape_Web_URL</TD></TR><TR><TD bgcolor="#e0e0e0"><B>Utility Tools</B></TD><TD>python_repl<br/>Datetime</TD></TR><TR><TD bgcolor="#e0e0e0"><B>Knowledge Base Tools</B></TD><TD>Chroma_DB_Search</TD></TR></TABLE>> color="#4d79ff" fillcolor="#b3d9ff" height=2 width=4]
+	}
+	subgraph cluster_external {
+		color="#f2d9e6" label="External Services" style=filled
+		s3_bucket [label="S3 Bucket" fillcolor="#ffcc99" shape=folder style="filled,rounded"]
+	}
+	START [label="User Input
+(via API)" color="#ff4d4d" fillcolor="#ff9999" fontcolor=white shape=circle]
+	END [label="Final Output
+(to API)" color="#ff4d4d" fillcolor="#ff9999" fontcolor=white shape=circle]
+	START -> api_server [label="HTTP Request" color="#666666"]
+	api_server -> chatbot [label="Process Input" color="#666666"]
+	api_server -> redis [label="Cache Access" color="#666666" style=dashed]
+	api_server -> db [label="DB Operations" color="#666666" style=dashed]
+	SystemPrompt -> chatbot [label=Initializes color="#666666"]
+	chatbot -> tools [label="If Tools Needed" color="#00cc00" style=dashed]
+	tools -> chatbot [label="Tool Results" color="#00cc00" style=dashed]
+	chatbot -> api_server [label=Response color="#666666"]
+	api_server -> END [label="HTTP Response" color="#666666"]
+	api_server -> s3_bucket [label="Image Storage/Retrieval" color="#666666" style=dashed]
+}
